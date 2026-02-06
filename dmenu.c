@@ -174,11 +174,11 @@ drawmenu(void)
 		char vi_char[] = {text[cursor], '\0'};
 		drw_text(drw, x + curpos, 0, TEXTW(vi_char) - lrpad, bh, 0, vi_char, 0);
 	} else if (using_vi_mode) {
-		drw_setscheme(drw, scheme[SchemeCursor]);
-		drw_rect(drw, x + curpos, 2, lrpad / 2, bh - 4, 1, 1);
+		drw_setscheme(drw, scheme[SchemeNorm]);
+		drw_rect(drw, x + curpos, 2, lrpad / 2, bh - 4, 1, 0);
 	} else if (curpos < w) {
-		drw_setscheme(drw, scheme[SchemeCursor]);
-		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 1);
+		drw_setscheme(drw, scheme[SchemeNorm]);
+		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 0);
 	}
 
 	if (lines > 0) {
@@ -961,8 +961,6 @@ main(int argc, char *argv[])
 			exit(0);
 		} else if (!strcmp(argv[i], "-b")) /* appears at the bottom of the screen */
 			topbar = 0;
-		else if (!strcmp(argv[i], "-c"))   /* appears centered on screen */
-			centered = 1;
 		else if (!strcmp(argv[i], "-f"))   /* grabs keyboard before reading stdin */
 			fast = 1;
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
