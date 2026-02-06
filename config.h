@@ -9,10 +9,10 @@ static const char *fonts[] = {
 static const char *prompt      = NULL;      /* -p  option; prompt to the left of input field */
 static const char *colors[SchemeLast][2] = {
 	/*     fg         bg       */
-	[SchemeNorm] = { "#bbbbbb", "#222222" },
-	[SchemeSel] = { "#eeeeee", "#005577" },
+	[SchemeNorm] = { "#a8dadc", "#00050f" },
+	[SchemeSel] = { "#f1faee", "#1d9bf0" },
 	[SchemeOut] = { "#000000", "#00ffff" },
-	[SchemeCursor] = { "#222222", "#bbbbbb"},
+	[SchemeCursor] = { "#00050f", "#a8dadc"},
 };
 /* -l option; if nonzero, dmenu uses vertical list with given number of lines */
 static unsigned int lines      = 0;
@@ -28,9 +28,10 @@ static const char worddelimiters[] = " ";
  * accessed with the global_esc keysym + mod mask
  */
 static unsigned int vi_mode = 1;
-static unsigned int start_mode = 0;			/* mode to use when -vi is passed. 0 = insert mode, 1 = normal mode */
+static unsigned int start_mode = 1;			/* mode to use when -vi is passed. 0 = insert mode, 1 = normal mode */
 static Key global_esc = { XK_n, Mod1Mask };	/* escape key when vi mode is not enabled explicitly */
 static Key quit_keys[] = {
 	/* keysym	modifier */
-	{ XK_q,		0 }
+	{ XK_q,			0 },
+	{ XK_Escape,	ShiftMask }
 };
