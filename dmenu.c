@@ -174,11 +174,11 @@ drawmenu(void)
 		char vi_char[] = {text[cursor], '\0'};
 		drw_text(drw, x + curpos, 0, TEXTW(vi_char) - lrpad, bh, 0, vi_char, 0);
 	} else if (using_vi_mode) {
-		drw_setscheme(drw, scheme[SchemeNorm]);
-		drw_rect(drw, x + curpos, 2, lrpad / 2, bh - 4, 1, 0);
+		drw_setscheme(drw, scheme[SchemeCursor]);
+		drw_rect(drw, x + curpos, 2, lrpad / 2, bh - 4, 1, 1);
 	} else if (curpos < w) {
-		drw_setscheme(drw, scheme[SchemeNorm]);
-		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 0);
+		drw_setscheme(drw, scheme[SchemeCursor]);
+		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 1);
 	}
 
 	if (lines > 0) {
