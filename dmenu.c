@@ -49,6 +49,7 @@ static struct item *matches, *matchend;
 static struct item *prev, *curr, *next, *sel;
 static int mon = -1, screen;
 static unsigned int using_vi_mode = 0;
+static unsigned int truncate_len = 0;
 
 static Atom clip, utf8;
 static Display *dpy;
@@ -83,9 +84,19 @@ appenditem(struct item *item, struct item **list, struct item **last)
 	*last = item;
 }
 
+static const char *
+displaytext(const char *text, char *buf, size_t bufsz)
+{
+	if (!truncate_len || strlen(text) <= truncate_len)
+		return text;
+	snprintf(buf, bufsz, "%.*s...", (int)truncate_len, text);
+	return buf;
+}
+
 static void
 calcoffsets(void)
 {
+	char buf[BUFSIZ];
 	int i, n;
 
 	if (lines > 0)
@@ -94,10 +105,10 @@ calcoffsets(void)
 		n = mw - (promptw + inputw + TEXTW("<") + TEXTW(">"));
 	/* calculate which items will begin the next page and previous page */
 	for (i = 0, next = curr; next; next = next->right)
-		if ((i += (lines > 0) ? bh : textw_clamp(next->text, n)) > n)
+		if ((i += (lines > 0) ? bh : textw_clamp(displaytext(next->text, buf, sizeof buf), n)) > n)
 			break;
 	for (i = 0, prev = curr; prev && prev->left; prev = prev->left)
-		if ((i += (lines > 0) ? bh : textw_clamp(prev->left->text, n)) > n)
+		if ((i += (lines > 0) ? bh : textw_clamp(displaytext(prev->left->text, buf, sizeof buf), n)) > n)
 			break;
 }
 
@@ -138,6 +149,8 @@ cistrstr(const char *h, const char *n)
 static int
 drawitem(struct item *item, int x, int y, int w)
 {
+	char buf[BUFSIZ];
+
 	if (item == sel)
 		drw_setscheme(drw, scheme[SchemeSel]);
 	else if (item->out)
@@ -145,7 +158,7 @@ drawitem(struct item *item, int x, int y, int w)
 	else
 		drw_setscheme(drw, scheme[SchemeNorm]);
 
-	return drw_text(drw, x, y, w, bh, lrpad / 2, item->text, 0);
+	return drw_text(drw, x, y, w, bh, lrpad / 2, displaytext(item->text, buf, sizeof buf), 0);
 }
 
 static void
@@ -194,8 +207,10 @@ drawmenu(void)
 			drw_text(drw, x, 0, w, bh, lrpad / 2, "<", 0);
 		}
 		x += w;
-		for (item = curr; item != next; item = item->right)
-			x = drawitem(item, x, 0, textw_clamp(item->text, mw - x - TEXTW(">")));
+		for (item = curr; item != next; item = item->right) {
+			char buf[BUFSIZ];
+			x = drawitem(item, x, 0, textw_clamp(displaytext(item->text, buf, sizeof buf), mw - x - TEXTW(">")));
+		}
 		if (next) {
 			w = TEXTW(">");
 			drw_setscheme(drw, scheme[SchemeNorm]);
@@ -816,9 +831,10 @@ run(void)
 static int
 max_textw(void)
 {
+	char buf[BUFSIZ];
 	int len = 0;
 	for (struct item *item = items; item && item->text; item++)
-		len = MAX(TEXTW(item->text), len);
+		len = MAX(TEXTW(displaytext(item->text, buf, sizeof buf)), len);
 	return len;
 }
 
@@ -944,7 +960,7 @@ setup(void)
 static void
 usage(void)
 {
-	die("usage: dmenu [-bcfiv] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
+	die("usage: dmenu [-bcfiv] [-l lines] [-t chars] [-p prompt] [-fn font] [-m monitor]\n"
 	    "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]");
 }
 
@@ -978,6 +994,8 @@ main(int argc, char *argv[])
 		/* these options take one argument */
 		else if (!strcmp(argv[i], "-l"))   /* number of lines in vertical list */
 			lines = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "-t"))   /* truncate items to N characters */
+			truncate_len = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "-m"))
 			mon = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "-p"))   /* adds prompt to left of input field */
