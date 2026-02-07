@@ -944,7 +944,7 @@ setup(void)
 static void
 usage(void)
 {
-	die("usage: dmenu [-bfiv] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
+	die("usage: dmenu [-bcfiv] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
 	    "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]");
 }
 
@@ -966,7 +966,9 @@ main(int argc, char *argv[])
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
-		} else if (!strcmp(argv[i], "-vi")) {
+		} else if (!strcmp(argv[i], "-c"))   /* appears centered on screen */
+			centered = 1;
+		else if (!strcmp(argv[i], "-vi")) {
 			vi_mode = 1;
 			using_vi_mode = start_mode;
 			global_esc.ksym = XK_Escape;
