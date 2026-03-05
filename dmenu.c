@@ -25,7 +25,7 @@
 #define TEXTW(X)              (drw_fontset_getwidth(drw, (X)) + lrpad)
 
 /* enums */
-enum { SchemeNorm, SchemeSel, SchemeOut, SchemeCursor, SchemeLast }; /* color schemes */
+enum { SchemeNorm, SchemeSel, SchemeOut, SchemeCursor, SchemeSuffix, SchemeLast }; /* color schemes */
 
 struct item {
 	char *text;
@@ -40,6 +40,7 @@ typedef struct {
 
 static char text[BUFSIZ] = "";
 static char *embed;
+static const char *suffix = NULL;
 static int bh, mw, mh;
 static int inputw = 0, promptw;
 static int lrpad; /* sum of left and right padding */
@@ -180,6 +181,14 @@ drawmenu(void)
 	drw_setscheme(drw, scheme[SchemeNorm]);
 	drw_text(drw, x, 0, w, bh, lrpad / 2, text, 0);
 
+	/* draw suffix hint (e.g. ".mp4") dimmed after input text */
+	if (suffix) {
+		int sx = x + drw_fontset_getwidth(drw, text) + lrpad / 2;
+		drw_setscheme(drw, scheme[SchemeSuffix]);
+		drw_text(drw, sx, 0, drw_fontset_getwidth(drw, suffix) + lrpad / 2, bh, 0, suffix, 0);
+		drw_setscheme(drw, scheme[SchemeNorm]);
+	}
+
 	curpos = TEXTW(text) - TEXTW(&text[cursor]);
 	curpos += lrpad / 2 - 1;
 	if (using_vi_mode && text[0] != '\0') {
@@ -187,11 +196,11 @@ drawmenu(void)
 		char vi_char[] = {text[cursor], '\0'};
 		drw_text(drw, x + curpos, 0, TEXTW(vi_char) - lrpad, bh, 0, vi_char, 0);
 	} else if (using_vi_mode) {
-		drw_setscheme(drw, scheme[SchemeNorm]);
-		drw_rect(drw, x + curpos, 2, lrpad / 2, bh - 4, 1, 0);
+		drw_setscheme(drw, scheme[SchemeCursor]);
+		drw_rect(drw, x + curpos, 2, lrpad / 2, bh - 4, 1, 1);
 	} else if (curpos < w) {
-		drw_setscheme(drw, scheme[SchemeNorm]);
-		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 0);
+		drw_setscheme(drw, scheme[SchemeCursor]);
+		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 1);
 	}
 
 	if (lines > 0) {
@@ -1000,6 +1009,8 @@ main(int argc, char *argv[])
 			mon = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "-p"))   /* adds prompt to left of input field */
 			prompt = argv[++i];
+		else if (!strcmp(argv[i], "-S"))   /* suffix hint after input text */
+			suffix = argv[++i];
 		else if (!strcmp(argv[i], "-fn"))  /* font or font set */
 			fonts[0] = argv[++i];
 		else if (!strcmp(argv[i], "-nb"))  /* normal background color */
