@@ -1,2 +1,8 @@
 #!/bin/sh
-dmenu_path | dmenu "$@" | ${SHELL:-"/bin/sh"} &
+choice=$(dmenu_path | dmenu "$@")
+[ -z "$choice" ] && exit
+
+case "$choice" in
+	qutebrowser) exec qutebrowser --basedir ~/.runtime/qutebrowser-yeyito ;;
+	*) exec ${SHELL:-"/bin/sh"} -c "$choice" ;;
+esac
