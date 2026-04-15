@@ -52,6 +52,9 @@ static struct item *prev, *curr, *next, *sel;
 static int mon = -1, screen;
 static unsigned int using_vi_mode = 0;
 static unsigned int truncate_len = 0;
+static KeyCode replaykeycode;       /* pending Mod4 handoff keycode */
+static KeySym replaykeysym = NoSymbol;
+static int keyboardreleased;        /* handoff temporarily released grab */
 
 static Atom clip, utf8;
 static Display *dpy;
@@ -65,6 +68,77 @@ static Clr *scheme[SchemeLast];
 
 static int (*fstrncmp)(const char *, const char *, size_t) = strncmp;
 static char *(*fstrstr)(const char *, const char *) = strstr;
+
+static void cleanup(void);
+static void grabfocus(void);
+
+static const char *handoffclasses[] = { "draw", "xcolor" };
+
+static int
+windowhasclass(Window w, const char *class)
+{
+	XClassHint ch = {0};
+	int match = 0;
+
+	if (!w || w == None || w == PointerRoot || w == root)
+		return 0;
+	if (XGetClassHint(dpy, w, &ch)) {
+		match = (ch.res_class && strcmp(ch.res_class, class) == 0);
+		if (ch.res_name)
+			XFree(ch.res_name);
+		if (ch.res_class)
+			XFree(ch.res_class);
+	}
+	return match;
+}
+
+static int
+windowhasanyclass(Window w, const char *classes[], size_t n)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		if (windowhasclass(w, classes[i]))
+			return 1;
+	return 0;
+}
+
+static void
+clearreplay(void)
+{
+	replaykeycode = 0;
+	replaykeysym = NoSymbol;
+}
+
+static int
+trygrabkeyboard(void)
+{
+	return XGrabKeyboard(dpy, DefaultRootWindow(dpy), True, GrabModeAsync,
+	                     GrabModeAsync, CurrentTime) == GrabSuccess;
+}
+
+static void
+restorehandoff(void)
+{
+	Window focuswin;
+	int revertwin;
+
+	if (!keyboardreleased)
+		return;
+	XGetInputFocus(dpy, &focuswin, &revertwin);
+	if (focuswin != win) {
+		if (windowhasclass(focuswin, "dmenu")) {
+			cleanup();
+			exit(1);
+		}
+		if (windowhasanyclass(focuswin, handoffclasses, LENGTH(handoffclasses)))
+			return;
+	}
+	if (!trygrabkeyboard())
+		return;
+	keyboardreleased = 0;
+	grabfocus();
+}
 
 static unsigned int
 textw_clamp(const char *str, unsigned int n)
@@ -152,22 +226,98 @@ iswmkeysym(KeySym ksym)
 	}
 }
 
+static int
+keyisdown(Display *dpy, KeyCode code)
+{
+	char keys[32];
+
+	if (!code)
+		return 0;
+	XQueryKeymap(dpy, keys);
+	return !!(keys[code / 8] & (1 << (code % 8)));
+}
+
+static KeyCode
+mod4keycode(Display *dpy, int preferup)
+{
+	static KeySym mod4syms[] = {
+		XK_Super_L, XK_Super_R,
+		XK_Hyper_L, XK_Hyper_R,
+		XK_Meta_L,  XK_Meta_R,
+	};
+	XModifierKeymap *modmap;
+	KeyCode code, fallback = 0;
+	int i, start, end;
+	size_t j;
+
+	if ((modmap = XGetModifierMapping(dpy))) {
+		start = Mod4MapIndex * modmap->max_keypermod;
+		end = start + modmap->max_keypermod;
+		for (i = start; i < end; i++) {
+			code = modmap->modifiermap[i];
+			if (!code)
+				continue;
+			if (!fallback)
+				fallback = code;
+			if (!preferup || !keyisdown(dpy, code)) {
+				XFreeModifiermap(modmap);
+				return code;
+			}
+		}
+		XFreeModifiermap(modmap);
+	}
+	if (fallback && (!preferup || !keyisdown(dpy, fallback)))
+		return fallback;
+	for (j = 0; j < LENGTH(mod4syms); j++) {
+		code = XKeysymToKeycode(dpy, mod4syms[j]);
+		if (code && (!preferup || !keyisdown(dpy, code)))
+			return code;
+	}
+	return 0;
+}
+
 static void
-replaywmkey(XKeyEvent *ev)
+replaywmkey(KeyCode keycode, KeySym ksym)
 {
 	Display *rdpy;
+	KeyCode mod4, heldmod4;
 
-	if (!(ev->state & Mod4Mask) || !iswmkeysym(XLookupKeysym(ev, 0)))
+	if (!keycode || !iswmkeysym(ksym))
 		return;
 	if (!(rdpy = XOpenDisplay(NULL)))
 		return;
 
 	/*
-	 * dmenu already saw the original Mod4 combo. Close dmenu first, then replay
-	 * just the non-modifier key while the user's real Mod4 press is still held.
+	 * dmenu already consumed the original Mod4 combo under its active keyboard
+	 * grab. After closing dmenu, synthesize a fresh Mod4 combo that dwm can see.
+	 * Prefer a Mod4 keycode that is not currently held physically, so we get a
+	 * true new modifier press edge.
 	 */
-	XTestFakeKeyEvent(rdpy, ev->keycode, True, CurrentTime);
-	XTestFakeKeyEvent(rdpy, ev->keycode, False, CurrentTime);
+	usleep(20000);
+	heldmod4 = mod4keycode(rdpy, 0);
+	mod4 = mod4keycode(rdpy, 1);
+	if (!mod4)
+		mod4 = heldmod4;
+	if (!mod4) {
+		XCloseDisplay(rdpy);
+		return;
+	}
+
+	if (mod4 == heldmod4 && keyisdown(rdpy, mod4)) {
+		XTestFakeKeyEvent(rdpy, mod4, False, CurrentTime);
+		XSync(rdpy, False);
+		usleep(15000);
+	}
+	XTestFakeKeyEvent(rdpy, mod4, True, CurrentTime);
+	XSync(rdpy, False);
+	usleep(15000);
+	XTestFakeKeyEvent(rdpy, keycode, True, CurrentTime);
+	XSync(rdpy, False);
+	usleep(15000);
+	XTestFakeKeyEvent(rdpy, keycode, False, CurrentTime);
+	XSync(rdpy, False);
+	usleep(15000);
+	XTestFakeKeyEvent(rdpy, mod4, False, CurrentTime);
 	XSync(rdpy, False);
 	XCloseDisplay(rdpy);
 }
@@ -292,15 +442,19 @@ grabfocus(void)
 static void
 grabkeyboard(void)
 {
+	struct timespec ts = { .tv_sec = 0, .tv_nsec = 1000000  };
+	int i;
+
 	if (embed)
 		return;
-	/*
-	 * Intentionally avoid an active keyboard grab.
-	 *
-	 * This lets dwm passive root hotkeys and other interactive tools keep
-	 * working while dmenu is open. Standalone dmenu relies on explicit input
-	 * focus instead; setup() calls grabfocus() after mapping the menu window.
-	 */
+	/* try to grab keyboard, we may have to wait for another process to ungrab */
+	for (i = 0; i < 1000; i++) {
+		if (XGrabKeyboard(dpy, DefaultRootWindow(dpy), True, GrabModeAsync,
+		                  GrabModeAsync, CurrentTime) == GrabSuccess)
+			return;
+		nanosleep(&ts, NULL);
+	}
+	die("cannot grab keyboard");
 }
 
 static void
@@ -573,6 +727,32 @@ draw:
 }
 
 static void
+keyrelease(XKeyEvent *ev)
+{
+	XEvent next;
+	KeyCode keycode;
+	KeySym ksym;
+
+	if (!replaykeycode || ev->keycode != replaykeycode)
+		return;
+	/* suppress autorepeat-generated releases */
+	if (XPending(dpy)) {
+		XPeekEvent(dpy, &next);
+		if (next.type == KeyPress &&
+		    next.xkey.time == ev->time &&
+		    next.xkey.keycode == ev->keycode)
+			return;
+	}
+	keycode = replaykeycode;
+	ksym = replaykeysym;
+	clearreplay();
+	XUngrabKeyboard(dpy, CurrentTime);
+	keyboardreleased = 1;
+	XSync(dpy, False);
+	replaywmkey(keycode, ksym);
+}
+
+static void
 keypress(XKeyEvent *ev)
 {
 	char buf[64];
@@ -592,9 +772,10 @@ keypress(XKeyEvent *ev)
 	}
 
 	if ((ev->state & Mod4Mask) && iswmkeysym(ksym)) {
-		cleanup();
-		replaywmkey(ev);
-		exit(1);
+		replaykeycode = ev->keycode;
+		replaykeysym = ksym;
+		keyboardreleased = 0;
+		return;
 	}
 
 	if (using_vi_mode) {
@@ -849,35 +1030,55 @@ run(void)
 {
 	XEvent ev;
 
-	while (!XNextEvent(dpy, &ev)) {
-		if (XFilterEvent(&ev, win))
-			continue;
-		switch(ev.type) {
-		case DestroyNotify:
-			if (ev.xdestroywindow.window != win)
+	int xfd = ConnectionNumber(dpy);
+
+	for (;;) {
+		while (XPending(dpy)) {
+			XNextEvent(dpy, &ev);
+			if (XFilterEvent(&ev, win))
+				continue;
+			switch(ev.type) {
+			case DestroyNotify:
+				if (ev.xdestroywindow.window != win)
+					break;
+				cleanup();
+				exit(1);
+			case Expose:
+				if (ev.xexpose.count == 0)
+					drw_map(drw, win, 0, 0, mw, mh);
 				break;
-			cleanup();
-			exit(1);
-		case Expose:
-			if (ev.xexpose.count == 0)
-				drw_map(drw, win, 0, 0, mw, mh);
-			break;
-		case FocusIn:
-			/* regrab focus from parent window */
-			if (ev.xfocus.window != win)
-				grabfocus();
-			break;
-		case KeyPress:
-			keypress(&ev.xkey);
-			break;
-		case SelectionNotify:
-			if (ev.xselection.property == utf8)
-				paste();
-			break;
-		case VisibilityNotify:
-			if (ev.xvisibility.state != VisibilityUnobscured)
-				XRaiseWindow(dpy, win);
-			break;
+			case FocusIn:
+				if (keyboardreleased) {
+					grabkeyboard();
+					keyboardreleased = 0;
+				}
+				/* regrab focus from parent window */
+				if (ev.xfocus.window != win)
+					grabfocus();
+				break;
+			case KeyPress:
+				keypress(&ev.xkey);
+				break;
+			case KeyRelease:
+				keyrelease(&ev.xkey);
+				break;
+			case SelectionNotify:
+				if (ev.xselection.property == utf8)
+					paste();
+				break;
+			case VisibilityNotify:
+				if (ev.xvisibility.state != VisibilityUnobscured)
+					XRaiseWindow(dpy, win);
+				break;
+			}
+		}
+		restorehandoff();
+		{
+			fd_set fds;
+			struct timeval tv = { .tv_sec = 0, .tv_usec = 50000 };
+			FD_ZERO(&fds);
+			FD_SET(xfd, &fds);
+			select(xfd + 1, &fds, NULL, NULL, &tv);
 		}
 	}
 }
@@ -977,7 +1178,7 @@ setup(void)
 	/* create menu window */
 	swa.override_redirect = True;
 	swa.background_pixel = scheme[SchemeNorm][ColBg].pixel;
-	swa.event_mask = ExposureMask | KeyPressMask | VisibilityChangeMask;
+	swa.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | VisibilityChangeMask;
 	win = XCreateWindow(dpy, root, x, y, mw, mh, border_width,
 	                    CopyFromParent, CopyFromParent, CopyFromParent,
 	                    CWOverrideRedirect | CWBackPixel | CWEventMask, &swa);
