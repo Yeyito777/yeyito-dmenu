@@ -11,6 +11,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/XTest.h>
 #ifdef XINERAMA
 #include <X11/extensions/Xinerama.h>
 #endif
@@ -127,6 +128,48 @@ cleanup(void)
 	drw_free(drw);
 	XSync(dpy, False);
 	XCloseDisplay(dpy);
+}
+
+static int
+iswmkeysym(KeySym ksym)
+{
+	switch (ksym) {
+	case XK_Super_L:
+	case XK_Super_R:
+	case XK_Hyper_L:
+	case XK_Hyper_R:
+	case XK_Meta_L:
+	case XK_Meta_R:
+	case XK_Shift_L:
+	case XK_Shift_R:
+	case XK_Control_L:
+	case XK_Control_R:
+	case XK_Alt_L:
+	case XK_Alt_R:
+		return 0;
+	default:
+		return 1;
+	}
+}
+
+static void
+replaywmkey(XKeyEvent *ev)
+{
+	Display *rdpy;
+
+	if (!(ev->state & Mod4Mask) || !iswmkeysym(XLookupKeysym(ev, 0)))
+		return;
+	if (!(rdpy = XOpenDisplay(NULL)))
+		return;
+
+	/*
+	 * dmenu already saw the original Mod4 combo. Close dmenu first, then replay
+	 * just the non-modifier key while the user's real Mod4 press is still held.
+	 */
+	XTestFakeKeyEvent(rdpy, ev->keycode, True, CurrentTime);
+	XTestFakeKeyEvent(rdpy, ev->keycode, False, CurrentTime);
+	XSync(rdpy, False);
+	XCloseDisplay(rdpy);
 }
 
 static char *
@@ -249,19 +292,15 @@ grabfocus(void)
 static void
 grabkeyboard(void)
 {
-	struct timespec ts = { .tv_sec = 0, .tv_nsec = 1000000  };
-	int i;
-
 	if (embed)
 		return;
-	/* try to grab keyboard, we may have to wait for another process to ungrab */
-	for (i = 0; i < 1000; i++) {
-		if (XGrabKeyboard(dpy, DefaultRootWindow(dpy), True, GrabModeAsync,
-		                  GrabModeAsync, CurrentTime) == GrabSuccess)
-			return;
-		nanosleep(&ts, NULL);
-	}
-	die("cannot grab keyboard");
+	/*
+	 * Intentionally avoid an active keyboard grab.
+	 *
+	 * This lets dwm passive root hotkeys and other interactive tools keep
+	 * working while dmenu is open. Standalone dmenu relies on explicit input
+	 * focus instead; setup() calls grabfocus() after mapping the menu window.
+	 */
 }
 
 static void
@@ -550,6 +589,12 @@ keypress(XKeyEvent *ev)
 	case XLookupKeySym:
 	case XLookupBoth: /* a KeySym and a string are returned: use keysym */
 		break;
+	}
+
+	if ((ev->state & Mod4Mask) && iswmkeysym(ksym)) {
+		cleanup();
+		replaywmkey(ev);
+		exit(1);
 	}
 
 	if (using_vi_mode) {
