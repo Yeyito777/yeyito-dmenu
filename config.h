@@ -37,6 +37,5 @@ static unsigned int start_mode = 1;			/* mode to use when -vi is passed. 0 = ins
 static Key global_esc = { XK_n, Mod1Mask };	/* escape key when vi mode is not enabled explicitly */
 static Key quit_keys[] = {
 	/* keysym	modifier */
-	{ XK_q,			0 },
 	{ XK_Escape,	ShiftMask }
 };

@@ -71,6 +71,7 @@ static char *(*fstrstr)(const char *, const char *) = strstr;
 
 static void cleanup(void);
 static void grabfocus(void);
+static void qrselection(void);
 
 static const char *handoffclasses[] = { "draw", "xcolor" };
 
@@ -202,6 +203,22 @@ cleanup(void)
 	drw_free(drw);
 	XSync(dpy, False);
 	XCloseDisplay(dpy);
+}
+
+static void
+qrselection(void)
+{
+	const char *src = (sel && sel->text) ? sel->text : text;
+	char *choice;
+
+	if (!src || !*src)
+		return;
+	if (!(choice = strdup(src)))
+		die("strdup:");
+
+	cleanup();
+	execlp("qr", "qr", choice, (char *)NULL);
+	die("qr:");
 }
 
 static int
@@ -712,6 +729,9 @@ vi_keypress(KeySym ksym, const XKeyEvent *ev)
 		text[sizeof text - 1] = '\0';
 		cursor = strlen(text) - 1;
 		match();
+		break;
+	case XK_q:
+		qrselection();
 		break;
 	default:
 		for (size_t i = 0; i < quit_len; ++i)
