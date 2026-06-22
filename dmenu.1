@@ -89,7 +89,10 @@ dmenu is completely controlled by the keyboard.  Items are selected using the
 arrow keys, page up, page down, home, and end.
 .TP
 .B Tab
-Copy the selected item to the input field.
+Select the next matching item, wrapping to the first item after the last.
+.TP
+.B Shift\-Tab
+Select the previous matching item, wrapping to the last item before the first.
 .TP
 .B Return
 Confirm selection.  Prints the selected item to stdout and exits, returning

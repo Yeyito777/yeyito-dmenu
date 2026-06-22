@@ -600,6 +600,63 @@ movewordedge(int dir)
 }
 
 static void
+selectlast(void)
+{
+	if (!matchend)
+		return;
+	if (next) {
+		/* jump to end of list and position items in reverse */
+		curr = matchend;
+		calcoffsets();
+		curr = prev;
+		calcoffsets();
+		while (next && (curr = curr->right))
+			calcoffsets();
+	}
+	sel = matchend;
+}
+
+static void
+selectnextitem(void)
+{
+	if (!matches)
+		return;
+	if (!sel) {
+		sel = curr = matches;
+		calcoffsets();
+		return;
+	}
+	if (sel->right) {
+		if ((sel = sel->right) == next) {
+			curr = next;
+			calcoffsets();
+		}
+	} else {
+		sel = curr = matches;
+		calcoffsets();
+	}
+}
+
+static void
+selectprevitem(void)
+{
+	if (!matches)
+		return;
+	if (!sel) {
+		selectlast();
+		return;
+	}
+	if (sel->left) {
+		if ((sel = sel->left)->right == curr) {
+			curr = prev;
+			calcoffsets();
+		}
+	} else {
+		selectlast();
+	}
+}
+
+static void
 vi_keypress(KeySym ksym, const XKeyEvent *ev)
 {
 	static const size_t quit_len = LENGTH(quit_keys);
@@ -753,13 +810,14 @@ vi_keypress(KeySym ksym, const XKeyEvent *ev)
 		if (sel)
 			sel->out = 1;
 		break;
+	case XK_ISO_Left_Tab:
+		selectprevitem();
+		break;
 	case XK_Tab:
-		if (!sel)
-			return;
-		strncpy(text, sel->text, sizeof text - 1);
-		text[sizeof text - 1] = '\0';
-		cursor = strlen(text) - 1;
-		match();
+		if (ev->state & ShiftMask)
+			selectprevitem();
+		else
+			selectnextitem();
 		break;
 	case XK_q:
 		qrselection();
@@ -1015,13 +1073,14 @@ insert:
 			calcoffsets();
 		}
 		break;
+	case XK_ISO_Left_Tab:
+		selectprevitem();
+		break;
 	case XK_Tab:
-		if (!sel)
-			return;
-		cursor = strnlen(sel->text, sizeof text - 1);
-		memcpy(text, sel->text, cursor);
-		text[cursor] = '\0';
-		match();
+		if (ev->state & ShiftMask)
+			selectprevitem();
+		else
+			selectnextitem();
 		break;
 	}
 
