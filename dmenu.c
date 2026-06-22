@@ -68,6 +68,8 @@ static Clr *scheme[SchemeLast];
 
 static int (*fstrncmp)(const char *, const char *, size_t) = strncmp;
 static char *(*fstrstr)(const char *, const char *) = strstr;
+static int caseinsensitive = 0;
+static int fuzzy = 0;
 
 static void cleanup(void);
 static void grabfocus(void);
@@ -358,6 +360,25 @@ cistrstr(const char *h, const char *n)
 }
 
 static int
+fuzzycharcmp(char a, char b)
+{
+	if (caseinsensitive)
+		return tolower((unsigned char)a) == tolower((unsigned char)b);
+	return a == b;
+}
+
+static int
+fuzzymatch(const char *str, const char *pattern)
+{
+	if (!pattern[0])
+		return 1;
+	for (; *str && *pattern; str++)
+		if (fuzzycharcmp(*str, *pattern))
+			pattern++;
+	return !*pattern;
+}
+
+static int
 drawitem(struct item *item, int x, int y, int w)
 {
 	char buf[BUFSIZ];
@@ -483,7 +504,7 @@ match(void)
 	char buf[sizeof text], *s;
 	int i, tokc = 0;
 	size_t len, textsize;
-	struct item *item, *lprefix, *lsubstr, *prefixend, *substrend;
+	struct item *item, *lprefix, *lsubstr, *lfuzzy, *prefixend, *substrend, *fuzzyend;
 
 	strcpy(buf, text);
 	/* separate input text into tokens to be matched individually */
@@ -492,21 +513,23 @@ match(void)
 			die("cannot realloc %zu bytes:", tokn * sizeof *tokv);
 	len = tokc ? strlen(tokv[0]) : 0;
 
-	matches = lprefix = lsubstr = matchend = prefixend = substrend = NULL;
+	matches = lprefix = lsubstr = lfuzzy = matchend = prefixend = substrend = fuzzyend = NULL;
 	textsize = strlen(text) + 1;
 	for (item = items; item && item->text; item++) {
 		for (i = 0; i < tokc; i++)
-			if (!fstrstr(item->text, tokv[i]))
+			if (fuzzy ? !fuzzymatch(item->text, tokv[i]) : !fstrstr(item->text, tokv[i]))
 				break;
 		if (i != tokc) /* not all tokens match */
 			continue;
-		/* exact matches go first, then prefixes, then substrings */
+		/* exact matches go first, then prefixes, then substrings, then fuzzy matches */
 		if (!tokc || !fstrncmp(text, item->text, textsize))
 			appenditem(item, &matches, &matchend);
 		else if (!fstrncmp(tokv[0], item->text, len))
 			appenditem(item, &lprefix, &prefixend);
-		else
+		else if (fstrstr(item->text, tokv[0]))
 			appenditem(item, &lsubstr, &substrend);
+		else
+			appenditem(item, &lfuzzy, &fuzzyend);
 	}
 	if (lprefix) {
 		if (matches) {
@@ -523,6 +546,14 @@ match(void)
 		} else
 			matches = lsubstr;
 		matchend = substrend;
+	}
+	if (lfuzzy) {
+		if (matches) {
+			matchend->right = lfuzzy;
+			lfuzzy->left = matchend;
+		} else
+			matches = lfuzzy;
+		matchend = fuzzyend;
 	}
 	curr = sel = matches;
 	calcoffsets();
@@ -1235,7 +1266,7 @@ setup(void)
 static void
 usage(void)
 {
-	die("usage: dmenu [-bcfiv] [-l lines] [-t chars] [-p prompt] [-fn font] [-m monitor]\n"
+	die("usage: dmenu [-bcfiFv] [-l lines] [-t chars] [-p prompt] [-fn font] [-m monitor]\n"
 	    "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]");
 }
 
@@ -1257,6 +1288,9 @@ main(int argc, char *argv[])
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
+			caseinsensitive = 1;
+		} else if (!strcmp(argv[i], "-F")) { /* fuzzy subsequence item matching */
+			fuzzy = 1;
 		} else if (!strcmp(argv[i], "-c"))   /* appears centered on screen */
 			centered = 1;
 		else if (!strcmp(argv[i], "-vi")) {
